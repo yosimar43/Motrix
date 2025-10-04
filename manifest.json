@@ -3,9 +3,12 @@
   "name": "Motrix extensión",
   "version": "1.0",
   "description": "Extencion para gestionar descargas con Motrix",
-  "permissions": ["downloads", "notifications"],
+  "permissions": ["downloads", "notifications", "storage"],
   "background": {
     "service_worker": "index.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
   },
   "icons": {
     "48": "icon.png"
