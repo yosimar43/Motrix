@@ -3,143 +3,47 @@
 <head>
   <meta charset="UTF-8">
   <title>Configuración Motrix</title>
-  <style>
-    body {
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 0;
-      width: 320px;
-      background: #f9fafb;
-      animation: fadeIn 0.4s ease-in;
-    }
-
-    header {
-      background: linear-gradient(135deg, #2196f3, #42a5f5);
-      padding: 15px;
-      color: white;
-      text-align: center;
-      border-radius: 0 0 20px 20px;
-      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
-    }
-
-    header h3 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: bold;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .container {
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-    }
-
-    label {
-      font-size: 14px;
-      font-weight: 500;
-      color: #333;
-    }
-
-    input, textarea {
-      width: 100%;
-      padding: 8px;
-      margin-top: 6px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      box-sizing: border-box;
-      transition: 0.2s ease;
-    }
-
-    input:focus, textarea:focus {
-      border-color: #2196f3;
-      box-shadow: 0 0 5px rgba(33, 150, 243, 0.4);
-      outline: none;
-    }
-
-    button {
-      padding: 10px;
-      width: 100%;
-      border: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: bold;
-      color: white;
-      cursor: pointer;
-      transition: all 0.25s ease;
-      transform: translateY(0);
-    }
-
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 10px rgba(0,0,0,0.2);
-    }
-
-    #save {
-      background: #2196f3;
-    }
-
-    #skipNext {
-      background: #ff9800;
-    }
-
-    #skipNext.active {
-      background: #4caf50 !important;
-    }
-
-    #status {
-      font-size: 13px;
-      text-align: center;
-      min-height: 20px;
-      transition: 0.3s ease;
-    }
-
-    .card {
-      background: white;
-      border-radius: 12px;
-      padding: 15px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      animation: slideUp 0.4s ease;
-    }
-
-    /* Animaciones */
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    @keyframes slideUp {
-      from { transform: translateY(10px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-  </style>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header>
-    <h3>⚙️ Configuración Motrix</h3>
-  </header>
+  <div id="popup-container">
+    <h2>⚙️ Configuración Motrix</h2>
 
-  <div class="container">
     <div class="card">
-      <label>
-        Tamaño mínimo (MB):
-        <input type="number" id="minSize" min="1" value="5">
-      </label>
+      <label for="min-size">Tamaño mínimo (MB):</label>
+      <input type="number" id="min-size" value="5" min="1">
 
-      <label>
-        Extensiones excluidas (separadas por comas):
-        <textarea id="excludedExt">.jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.mp3</textarea>
-      </label>
+      <label for="excluded">Extensiones excluidas (separadas por comas):</label>
+      <textarea id="excluded">.jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.mp3</textarea>
+
+      <label for="max-downloads">Máximas descargas simultáneas:</label>
+      <input type="number" id="max-downloads" value="3" min="1" max="10">
+
+      <div class="buttons">
+        <button id="save-settings" class="primary">Guardar configuración</button>
+        <button id="skip-next" class="secondary">Omitir próxima descarga</button>
+      </div>
     </div>
 
-    <button id="save">💾 Guardar configuración</button>
-    <button id="skipNext">⏭️ Omitir la próxima descarga</button>
+    <hr>
 
-    <p id="status"></p>
+    <div class="card">
+      <h3>📦 Enlaces múltiples</h3>
+      <label for="links-input">Pega los enlaces (uno por línea):</label>
+      <textarea id="links-input" placeholder="https://ejemplo.com/archivo1.rar
+https://ejemplo.com/archivo2.rar"></textarea>
+
+      <div class="buttons">
+        <button id="send-links" class="primary">Enviar a Motrix</button>
+        <button id="clear-links" class="secondary">Limpiar</button>
+      </div>
+
+      <div id="queue-status">
+        <p><strong>Pendientes:</strong> <span id="pending-count">0</span></p>
+        <p><strong>Activas:</strong> <span id="active-count">0</span></p>
+        <p><strong>Completadas:</strong> <span id="completed-count">0</span></p>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>
