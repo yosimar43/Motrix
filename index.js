@@ -1,11 +1,8 @@
+// background.js (mejorado para evitar duplicados y loops)
 // =====================================
-// 🚀 Extensión Motrix Downloader Redirect
-// Intercepta descargas y las envía a Motrix vía RPC
-// =====================================
-
 const MOTRIX_RPC_URL = "http://localhost:16800/jsonrpc";
 
-// Valores por defecto (si storage está vacío)
+// Defaults
 const DEFAULT_MIN_MB = 5;
 const DEFAULT_EXCLUDED = [
   ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico",
@@ -13,12 +10,20 @@ const DEFAULT_EXCLUDED = [
   ".mp3", ".wav", ".ogg"
 ];
 
-// Notificación al instalar la extensión
+// Protección contra duplicados
+const processedIds = new Set();      // id de descarga ya procesados
+const recentUrls = new Map();        // url -> timestamp última procesada
+
+// Umbrales
+const URL_DUPLICATE_WINDOW = 5000;   // ms: si la misma URL fue procesada < 5s atrás, la ignoramos
+const ID_TTL = 60 * 1000;            // ms: cuánto mantenemos processedIds antes de limpiar
+
+// Notificación al instalar (solo una vez)
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.notifications.create({
+  chrome.notifications.create("motrix_ext_installed", {
     type: "basic",
     iconUrl: "icon.png",
-    title: "Extensión de Descarga",
+    title: "Extensión Motrix",
     message: "Extensión lista para enviar archivos a Motrix ✅",
   });
   console.log("Extensión cargada y lista.");
@@ -26,66 +31,106 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Listener: cada vez que inicia una descarga
 chrome.downloads.onCreated.addListener((downloadItem) => {
-  if (!downloadItem || !downloadItem.url) return;
+  try {
+    if (!downloadItem || !downloadItem.url) return;
+    const now = Date.now();
 
-  console.log("Interceptada nueva descarga:", downloadItem.url);
-
-  // Leemos skipNext y la configuración actual desde storage
-  chrome.storage.local.get(["skipNext", "minSizeMB", "excludedExt"], (data) => {
-    // Si skipNext está activo: lo consumimos y dejamos que la descarga prosiga normalmente
-    if (data.skipNext) {
-      chrome.storage.local.remove("skipNext", () => {
-        console.log("SkipNext activado: esta descarga no será interceptada.");
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icon.png",
-          title: "Extensión omitida (1 descarga)",
-          message: "La próxima descarga se dejó al navegador.",
-        });
-      });
-      return; // no cancelar ni enviar a Motrix
-    }
-
-    // Configuración (valores por defecto si no existen)
-    const minMB = (data.minSizeMB || DEFAULT_MIN_MB);
-    const minBytes = minMB * 1024 * 1024;
-    const excludedExt = Array.isArray(data.excludedExt) && data.excludedExt.length
-      ? data.excludedExt.map(e => e.toLowerCase())
-      : DEFAULT_EXCLUDED;
-
-    // Validar por extensión
-    const urlLower = downloadItem.url.toLowerCase();
-    if (excludedExt.some(ext => urlLower.endsWith(ext))) {
-      console.log("Descarga ignorada (extensión excluida):", downloadItem.url);
+    // 1) Evitar procesar varias veces el mismo downloadId
+    if (processedIds.has(downloadItem.id)) {
+      console.log("[skip] downloadId ya procesado:", downloadItem.id);
       return;
     }
 
-    // Validar por tamaño si está disponible
-    if (downloadItem.fileSize && downloadItem.fileSize < minBytes) {
-      console.log("Descarga ignorada (muy pequeña):", downloadItem.fileSize, "bytes");
+    // 2) Evitar procesar la misma URL muy seguido (p. ej. reintentos)
+    const last = recentUrls.get(downloadItem.url);
+    if (last && (now - last) < URL_DUPLICATE_WINDOW) {
+      console.log("[skip] misma URL procesada muy recientemente:", downloadItem.url);
       return;
     }
 
-    // Cancelar la descarga normal y redirigir a Motrix
-    chrome.downloads.cancel(downloadItem.id, () => {
-      console.log("Descarga cancelada en navegador, comprobando Motrix...");
-      comprobarMotrix()
-        .then(() => enviarAMotrix(downloadItem.url))
-        .catch(() => {
-          chrome.notifications.create({
+    // Marcar como procesado y programar limpieza
+    processedIds.add(downloadItem.id);
+    recentUrls.set(downloadItem.url, now);
+    setTimeout(() => processedIds.delete(downloadItem.id), ID_TTL);
+
+    console.log("Interceptada nueva descarga:", downloadItem.url, "id:", downloadItem.id);
+
+    // Leer configuración + flag skipNext
+    chrome.storage.local.get(["skipNext", "minSizeMB", "excludedExt"], (data) => {
+      // Si skipNext está activo, lo consumimos y dejamos pasar esta descarga
+      if (data && data.skipNext) {
+        chrome.storage.local.remove("skipNext", () => {
+          console.log("skipNext consumido: permitiendo esta descarga (id):", downloadItem.id);
+          chrome.notifications.create(`motrix_skip_${downloadItem.id}`, {
             type: "basic",
             iconUrl: "icon.png",
-            title: "Motrix no detectado ⚠️",
-            message: "Asegúrate de que Motrix esté abierto con el RPC activado.",
+            title: "Extensión omitida (1 descarga)",
+            message: "La próxima descarga se dejó al navegador.",
           });
-          console.error("Motrix no responde. ¿Está abierto?");
         });
+        return;
+      }
+
+      // Obtener configuración
+      const minMB = (data && data.minSizeMB) ? data.minSizeMB : DEFAULT_MIN_MB;
+      const minBytes = minMB * 1024 * 1024;
+      const excludedExt = (data && Array.isArray(data.excludedExt) && data.excludedExt.length)
+        ? data.excludedExt.map(e => e.toLowerCase())
+        : DEFAULT_EXCLUDED;
+
+      // Validar extensión (si coincide, no enviamos)
+      const urlLower = downloadItem.url.toLowerCase();
+      if (excludedExt.some(ext => urlLower.endsWith(ext))) {
+        console.log("Descarga ignorada por extensión excluida:", downloadItem.url);
+        return;
+      }
+
+      // Validar tamaño si está disponible
+      if (downloadItem.fileSize && downloadItem.fileSize < minBytes) {
+        console.log("Descarga ignorada (archivo muy pequeño):", downloadItem.fileSize, "bytes");
+        return;
+      }
+
+      // Proceder: cancelar la descarga en el navegador y enviarla a Motrix
+      chrome.downloads.cancel(downloadItem.id, () => {
+        if (chrome.runtime.lastError) {
+          // si cancelar falla, logueamos pero NO entramos en loop
+          console.warn("chrome.downloads.cancel falló:", chrome.runtime.lastError);
+        } else {
+          console.log("Descarga cancelada en el navegador (id):", downloadItem.id);
+        }
+
+        // Usamos un id de notificación único por descarga para evitar duplicados
+        const notId = `motrix_notify_${downloadItem.id}`;
+
+        // Crear notificación inicial (estado: enviando)
+        chrome.notifications.create(notId, {
+          type: "basic",
+          iconUrl: "icon.png",
+          title: "Motrix",
+          message: "Enviando descarga a Motrix...",
+        }, () => {
+          // Comprobar Motrix y enviar
+          comprobarMotrix()
+            .then(() => enviarAMotrix(downloadItem.url, notId))
+            .catch(() => {
+              console.error("Motrix no responde. Asegúrate de que esté abierto con RPC activo.");
+              chrome.notifications.update(notId, {
+                title: "Motrix no detectado ⚠️",
+                message: "Asegúrate de que Motrix esté abierto y el RPC activado."
+              });
+            });
+        });
+      });
     });
-  });
+
+  } catch (err) {
+    console.error("Error en onCreated:", err);
+  }
 });
 
 // =====================================
-// 🔎 Función: comprobar si Motrix está activo
+// comprobarMotrix: ping simple (aria2.getVersion)
 // =====================================
 function comprobarMotrix() {
   return fetch(MOTRIX_RPC_URL, {
@@ -98,16 +143,19 @@ function comprobarMotrix() {
       params: []
     }),
   }).then((res) => {
-    if (!res.ok) throw new Error("Motrix RPC no disponible");
+    if (!res.ok) throw new Error("Motrix RPC no disponible (status " + res.status + ")");
     return res.json();
   });
 }
 
 // =====================================
-// 🚀 Función: enviar enlace a Motrix
+// enviarAMotrix: envía y actualiza notificación por id
 // =====================================
-function enviarAMotrix(url) {
-  fetch(MOTRIX_RPC_URL, {
+function enviarAMotrix(url, notificationId) {
+  // por si no nos pasaron notificationId
+  const notifId = notificationId || `motrix_notify_${Math.random().toString(36).slice(2)}`;
+
+  return fetch(MOTRIX_RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -120,21 +168,16 @@ function enviarAMotrix(url) {
     .then((res) => res.json())
     .then((data) => {
       console.log("Motrix aceptó la descarga:", data);
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icon.png",
-        title: "Motrix",
-        message: "Descarga enviada correctamente ✅",
+      chrome.notifications.update(notifId, {
+        title: "Descarga enviada ✅",
+        message: "La descarga fue añadida a Motrix.",
       });
     })
     .catch((err) => {
       console.error("Error al enviar a Motrix:", err);
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icon.png",
-        title: "Motrix",
-        message: "❌ Error: no se pudo enviar a Motrix",
+      chrome.notifications.update(notifId, {
+        title: "Error: no se pudo enviar a Motrix",
+        message: "Comprueba que Motrix esté abierto y el RPC responda.",
       });
     });
 }
-
